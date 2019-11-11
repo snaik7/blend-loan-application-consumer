@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:cluster="http://www.mulesoft.org/schema/mule/ee/cluster" xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking" xmlns:dw="http://www.mulesoft.org/schema/mule/ee/dw" xmlns:db="http://www.mulesoft.org/schema/mule/db" xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:amqp="http://www.mulesoft.org/schema/mule/amqp" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:spring="http://www.springframework.org/schema/beans" 
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/amqp http://www.mulesoft.org/schema/mule/amqp/current/mule-amqp.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/ee/dw http://www.mulesoft.org/schema/mule/ee/dw/current/dw.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd">
+   <amqp:connector name="AMQP_0_9_Connector" validateConnections="true" host="${mq.host}" virtualHost="${mq.virtualhost}" username="${mq.username}" password="${mq.password}" doc:name="AMQP-0-9 Connector" ackMode="MANUAL"/>
+   <db:mysql-config name="MySQL_Configuration" host="${sql.host}" port="${sql.port}" user="${sql.user}" password="${sql.password}" database="${sql.database}" doc:name="MySQL Configuration"/>
+    <configuration defaultProcessingStrategy="synchronous" doc:name="Configuration">
+        <http:config useTransportForUris="false"/>
+    </configuration>
+    <http:request-config name="Blend_HTTP_Request_Configuration" protocol="HTTPS" host="${blend.host}" doc:name="HTTP Request Configuration" port="443"/>
+  
+    <flow name="blend-application-consumerFlow">
+        <amqp:inbound-endpoint responseTimeout="10000" doc:name="AMQP-0-9" connector-ref="AMQP_0_9_Connector" queueName="queue.blend.event.applicantevent.added" mimeType="application/json"/>
+        <flow-ref name="validate" doc:name="validate"/>
+                 <choice doc:name="Choice">
+            <when expression="#[flowVars['validate'] == true]">
+        <flow-ref name="checkIdempotencySub_Flow" doc:name="checkIdempotencySub_Flow"/>
+        <logger message="Processing for event # #[flowVars['eventId']] and loanId #[flowVars['loanId']]" level="INFO" doc:name="Logger"/>
+        <choice doc:name="Choice">
+            <when expression="#[flowVars['idempotent'] == true ]">
+ 
+   	   <enricher source="#[payload.size() == 0 ? null : payload[0]['uuid']]" target="#[flowVars['uuId']]" doc:name="Message Enricher">
+            <db:select config-ref="MySQL_Configuration" doc:name="Database">
+                <db:parameterized-query><![CDATA[select uuid from loan where loan_id = :loanId]]></db:parameterized-query>
+                <db:in-param name="loanId" type="VARCHAR" value="#[flowVars['loanId']]"/>
+            </db:select>
+       </enricher>
+    
+                        <flow-ref name="getLoanSubFlow" doc:name="getLoanSubFlow"/>
+        <choice doc:name="Choice">
+            <when expression="#[flowVars['uuId'] == null ]">
+                <set-variable variableName="uuId" value="#[java.util.UUID.randomUUID().toString()]" doc:name="Variable uuId"/>
+                <db:insert config-ref="MySQL_Configuration" doc:name="Database">
+                    <db:parameterized-query><![CDATA[INSERT INTO `loan`(`uuid`, `first_name`, `last_name`, `property_zipcode`, `loan_purpose_type`, `loan_type`, `loan_id`) VALUES (:uuId,:firstName,:lastName,:zipCode,:loanPurposeType,:loanType,:loanId)]]></db:parameterized-query>
+                		<db:in-param name="uuId" type="VARCHAR" value="#[flowVars['uuId']]"/>
+                		<db:in-param name="firstName" type="VARCHAR" value="#[payload['borrowers'][0]['name']]"/>
+                		<db:in-param name="lastName" type="VARCHAR" value="#[payload['borrowers'][0]['name']]"/>
+                		<db:in-param name="zipCode" type="VARCHAR" value="#[payload['propertyAddress']['zipCode']]"/>
+                		<db:in-param name="loanPurposeType" type="VARCHAR" value="#[payload['applicationType']]"/>
+                		<db:in-param name="loanType" type="VARCHAR" value="#[payload['loanType']]"/>
+                		<db:in-param name="loanId" type="VARCHAR" value="#[flowVars['loanId']]"/>
+                </db:insert>
+            </when>
+            <otherwise>
+                <logger message="Updating Loan # #[flowVars['loanId']]  in DB " level="INFO" doc:name="Logger"/>
+                                <db:update config-ref="MySQL_Configuration" doc:name="Database">
+                                    <db:parameterized-query><![CDATA[UPDATE `loan` 
+SET  `first_name`= :firstName,
+     `last_name`= :lastName, 
+     `property_zipcode` = :zipCode, 
+     `loan_purpose_type` = :loanPurposeType, 
+     `loan_type` = :loanType
+WHERE
+     `loan_id` = :loanId]]></db:parameterized-query>
+     				<db:in-param name="firstName" type="VARCHAR" value="#[payload['borrowers'][0]['name']]"/>
+                		<db:in-param name="lastName" type="VARCHAR" value="#[payload['borrowers'][0]['name']]"/>
+                		<db:in-param name="zipCode" type="VARCHAR" value="#[payload['propertyAddress']['zipCode']]"/>
+                		<db:in-param name="loanPurposeType" type="VARCHAR" value="#[payload['applicationType']]"/>
+                		<db:in-param name="loanType" type="VARCHAR" value="#[payload['loanType']]"/>
+                		<db:in-param name="loanId" type="VARCHAR" value="#[flowVars['loanId']]"/>
+                                </db:update>
+            </otherwise>
+        </choice>
+                 </when>
+                      
+            <otherwise>
+                        <logger message="Message already processed for event # #[flowVars['eventId']] and losId #[flowVars['loanId']]" level="INFO" doc:name="Logger"/>
+                         <amqp:acknowledge-message doc:name="AMQP-0-9 Acknowledge Message"/>
+            </otherwise>
+        </choice>
+          <flow-ref name="updatelosIdSubFlow" doc:name="updatelosIdSubFlow"/>
+                                <set-variable variableName="status" value="SUCCESS" doc:name="Variable status"/>
+                   <flow-ref name="updateExportStatusSubFlow" doc:name="updateExportStatusSubFlow"/>
+        <amqp:acknowledge-message doc:name="AMQP-0-9 Acknowledge Message"/>
+            </when>
+            <otherwise>
+                 <logger message="Validation  failure event # #[payload['eventId']] and loanId #[flowVars['loanId']] #[message.payload]" level="ERROR" doc:name="Logger"/>
+            </otherwise>
+        </choice>
+       
+        <catch-exception-strategy doc:name="Catch Exception Strategy">
+            <logger message="Error processing event # #[flowVars['eventId']] and loanId #[flowVars['loanId']] #[payload]" level="ERROR" doc:name="Logger"/>
+             <set-variable variableName="status" value="FAILED" doc:name="Variable status"/>
+            <flow-ref name="updateExportStatusSubFlow" doc:name="updateExportStatusSubFlow"/>
+        </catch-exception-strategy>
+    </flow>
+      <flow name="validate">
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/java
+---
+payload]]></dw:set-payload>
+        </dw:transform-message>
+        <set-variable variableName="eventId" value="#[payload['eventId']]" doc:name="Variable eventId"/>
+        <set-variable variableName="loanId" value="#[payload['message']['entityId']]" doc:name="Variable loanId"/>
+          <set-variable variableName="validate" value="#[flowVars['eventId'] == null  || flowVars['loanId'] == null ? false : true]" doc:name="Variable validate"/>
+        <catch-exception-strategy doc:name="Catch Exception Strategy">
+            <logger level="ERROR" doc:name="Logger" message="Error validating event"/>
+             <set-variable variableName="validate" value="#[false]" doc:name="Variable validate"/>
+        </catch-exception-strategy>
+    </flow>
+    <sub-flow name="getLoanSubFlow">
+        <http:request config-ref="Blend_HTTP_Request_Configuration" path="loans/{loanId}" method="GET" doc:name="HTTP">
+            <http:request-builder>
+                <http:uri-param paramName="loanId" value="#[flowVars['loanId']]"/>
+                <http:header headerName="authorization" value="#['Basic '+'${blend.authtoken}']"/>
+                <http:header headerName="blend-api-version" value="${blend.apiVersion}"/>
+                <http:header headerName="blend-target-instance" value="${blend.targetInstance}"/>
+            </http:request-builder>
+        </http:request>
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/java
+---
+payload]]></dw:set-payload>
+        </dw:transform-message>
+    </sub-flow>
+        <sub-flow name="updatelosIdSubFlow">
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	losId: flowVars.uuId
+}]]></dw:set-payload>
+        </dw:transform-message>
+         <http:request config-ref="Blend_HTTP_Request_Configuration" path="loans/{loanId}" method="PATCH" doc:name="HTTP">
+            <http:request-builder>
+                <http:uri-param paramName="loanId" value="#[flowVars['loanId']]"/>
+                <http:header headerName="authorization" value="#['Basic '+'${blend.authtoken}']"/>
+                <http:header headerName="blend-api-version" value="${blend.apiVersion}"/>
+                <http:header headerName="blend-target-instance" value="${blend.targetInstance}"/>
+            </http:request-builder>
+        </http:request>
+    </sub-flow>
+       <sub-flow name="updateExportStatusSubFlow">
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	status : flowVars.status
+}]]></dw:set-payload>
+        </dw:transform-message>
+         <http:request config-ref="Blend_HTTP_Request_Configuration" path="loans/{loanId}/export-status" method="POST" doc:name="HTTP">
+            <http:request-builder>
+                <http:uri-param paramName="loanId" value="#[flowVars['loanId']]"/>
+                <http:header headerName="authorization" value="#['Basic '+'${blend.authtoken}']"/>
+                <http:header headerName="blend-api-version" value="${blend.apiVersion}"/>
+                <http:header headerName="blend-target-instance" value="${blend.targetInstance}"/>
+            </http:request-builder>
+        </http:request>
+    </sub-flow>
+    <sub-flow name="checkIdempotencySub_Flow">
+        <set-variable variableName="idempotent" value="#[true]" doc:name="Variable idempotent"/>
+    </sub-flow>
+</mule>
