@@ -39,35 +39,59 @@ http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/m
         <choice doc:name="Choice">
             <when expression="#[flowVars['uuId'] == null ]">
                 <set-variable variableName="uuId" value="#[java.util.UUID.randomUUID().toString()]" doc:name="Variable uuId"/>
-                <db:insert config-ref="MySQL_Configuration" doc:name="Database">
-                    <db:parameterized-query><![CDATA[INSERT INTO `loan`(`uuid`, `first_name`, `last_name`, `property_zipcode`, `loan_purpose_type`, `loan_type`, `loan_id`) VALUES (:uuId,:firstName,:lastName,:zipCode,:loanPurposeType,:loanType,:loanId)]]></db:parameterized-query>
-                		<db:in-param name="uuId" type="VARCHAR" value="#[flowVars['uuId']]"/>
-                		<db:in-param name="firstName" type="VARCHAR" value="#[payload['borrowers'][0]['name']]"/>
-                		<db:in-param name="lastName" type="VARCHAR" value="#[payload['borrowers'][0]['name']]"/>
-                		<db:in-param name="zipCode" type="VARCHAR" value="#[payload['propertyAddress']['zipCode']]"/>
-                		<db:in-param name="loanPurposeType" type="VARCHAR" value="#[payload['applicationType']]"/>
-                		<db:in-param name="loanType" type="VARCHAR" value="#[payload['loanType']]"/>
-                		<db:in-param name="loanId" type="VARCHAR" value="#[flowVars['loanId']]"/>
-                </db:insert>
+                                <enricher doc:name="Message Enricher" target="#[flowVars['enrich']]">
+                                    <db:insert config-ref="MySQL_Configuration" doc:name="Database Insert Loan">
+                                        <db:parameterized-query><![CDATA[INSERT INTO `loan`(`uuid`,  `property_zipcode`, `loan_purpose_type`, `loan_type`, `loan_id`) VALUES (:uuId,:zipCode,:loanPurposeType,:loanType,:loanId)]]></db:parameterized-query>
+                                        <db:in-param name="uuId" type="VARCHAR" value="#[flowVars['uuId']]"/>
+                                        <db:in-param name="zipCode" type="VARCHAR" value="#[payload['propertyAddress']['zipCode']]"/>
+                                        <db:in-param name="loanPurposeType" type="VARCHAR" value="#[payload['applicationType']]"/>
+                                        <db:in-param name="loanType" type="VARCHAR" value="#[payload['loanType']]"/>
+                                        <db:in-param name="loanId" type="VARCHAR" value="#[flowVars['loanId']]"/>
+                                    </db:insert>
+                                </enricher>
+                                <foreach doc:name="For Each" collection="#[payload['borrowers']]">
+                                    <db:insert config-ref="MySQL_Configuration" doc:name="Database Insert Borrower">
+                                        <db:parameterized-query><![CDATA[INSERT INTO `borrower`(`uuid`, `first_name`, `last_name`) VALUES (:uuId,:firstName,:lastName)]]></db:parameterized-query>
+                                        <db:in-param name="uuId" type="VARCHAR" value="#[flowVars['uuId']]"/>
+                                        <db:in-param name="firstName" type="VARCHAR" value="#[payload['name']]"/>
+                                        <db:in-param name="lastName" type="VARCHAR" value="#[payload['name']]"/>
+                                    </db:insert>
+                                </foreach>
             </when>
             <otherwise>
                 <logger message="Updating Loan # #[flowVars['loanId']]  in DB " level="INFO" doc:name="Logger"/>
-                                <db:update config-ref="MySQL_Configuration" doc:name="Database">
+                     <enricher doc:name="Message Enricher" target="#[flowVars['enrich']]">
+                                <db:update config-ref="MySQL_Configuration" doc:name="Database Update Loan">
                                     <db:parameterized-query><![CDATA[UPDATE `loan` 
-SET  `first_name`= :firstName,
-     `last_name`= :lastName, 
+SET  
      `property_zipcode` = :zipCode, 
      `loan_purpose_type` = :loanPurposeType, 
      `loan_type` = :loanType
 WHERE
      `loan_id` = :loanId]]></db:parameterized-query>
-     				<db:in-param name="firstName" type="VARCHAR" value="#[payload['borrowers'][0]['name']]"/>
-                		<db:in-param name="lastName" type="VARCHAR" value="#[payload['borrowers'][0]['name']]"/>
+     		
                 		<db:in-param name="zipCode" type="VARCHAR" value="#[payload['propertyAddress']['zipCode']]"/>
                 		<db:in-param name="loanPurposeType" type="VARCHAR" value="#[payload['applicationType']]"/>
                 		<db:in-param name="loanType" type="VARCHAR" value="#[payload['loanType']]"/>
                 		<db:in-param name="loanId" type="VARCHAR" value="#[flowVars['loanId']]"/>
                                 </db:update>
+                                </enricher>
+                                     <enricher doc:name="Message Enricher" target="#[flowVars['enrich']]">
+                                <db:delete config-ref="MySQL_Configuration" doc:name="Database Delete Borrower">
+                                     <db:parameterized-query><![CDATA[DELETE from `borrower` 
+WHERE
+     `uuid` = :uuId]]></db:parameterized-query>
+     <db:in-param name="uuId" type="VARCHAR" value="#[flowVars['uuId']]"/>
+                                </db:delete>
+                                </enricher>
+                  <foreach doc:name="For Each" collection="#[payload['borrowers']]">
+                                 <db:insert config-ref="MySQL_Configuration" doc:name="Database Update Borrower">
+                     <db:parameterized-query><![CDATA[INSERT INTO `borrower`(`uuid`, `first_name`, `last_name`) VALUES (:uuId,:firstName,:lastName)]]></db:parameterized-query>
+                		<db:in-param name="uuId" type="VARCHAR" value="#[flowVars['uuId']]"/>
+                		<db:in-param name="firstName" type="VARCHAR" value="#[payload['name']]"/>
+                		<db:in-param name="lastName" type="VARCHAR" value="#[payload['name']]"/>
+                    </db:insert>
+                    </foreach>
             </otherwise>
         </choice>
                  </when>
