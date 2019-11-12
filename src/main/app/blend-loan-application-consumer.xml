@@ -53,8 +53,8 @@ http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/m
                                     <db:insert config-ref="MySQL_Configuration" doc:name="Database Insert Borrower">
                                         <db:parameterized-query><![CDATA[INSERT INTO `borrower`(`uuid`, `first_name`, `last_name`) VALUES (:uuId,:firstName,:lastName)]]></db:parameterized-query>
                                         <db:in-param name="uuId" type="VARCHAR" value="#[flowVars['uuId']]"/>
-                                        <db:in-param name="firstName" type="VARCHAR" value="#[payload['name']]"/>
-                                        <db:in-param name="lastName" type="VARCHAR" value="#[payload['name']]"/>
+                                        <db:in-param name="firstName" type="VARCHAR" value="#[(payload['name']).toString().split(' ')[0]]"/>
+                                        <db:in-param name="lastName" type="VARCHAR" value="#[(payload['name']).toString().split(' ')[1]]"/>
                                     </db:insert>
                                 </foreach>
             </when>
@@ -88,8 +88,8 @@ WHERE
                                  <db:insert config-ref="MySQL_Configuration" doc:name="Database Update Borrower">
                      <db:parameterized-query><![CDATA[INSERT INTO `borrower`(`uuid`, `first_name`, `last_name`) VALUES (:uuId,:firstName,:lastName)]]></db:parameterized-query>
                 		<db:in-param name="uuId" type="VARCHAR" value="#[flowVars['uuId']]"/>
-                		<db:in-param name="firstName" type="VARCHAR" value="#[payload['name']]"/>
-                		<db:in-param name="lastName" type="VARCHAR" value="#[payload['name']]"/>
+                     <db:in-param name="firstName" type="VARCHAR" value="#[(payload['name']).toString().split(' ')[0]]"/>
+                     <db:in-param name="lastName" type="VARCHAR" value="#[(payload['name']).toString().split(' ')[1]]"/>
                     </db:insert>
                     </foreach>
             </otherwise>
